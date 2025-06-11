@@ -1,0 +1,139 @@
+function enqueue_leaflet_assets() {
+    wp_enqueue_style('leaflet-css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+    wp_enqueue_script('leaflet-js', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', [], null, true);
+}
+add_action('wp_enqueue_scripts', 'enqueue_leaflet_assets');
+
+
+ 
+function property_locations_leaflet_map() {
+  $properties = new WP_Query([
+    'post_type' => 'property',
+    'posts_per_page' => -1,
+    'meta_query' => [
+      ['key' => 'pyre_full_address', 'compare' => 'EXISTS']
+    ]
+  ]);
+
+  $locations = [];
+  $defaultLat = 44.59813312191928;
+  $defaultLng = -75.74553358384077;
+  $api_key = '0e1e3b75eac74f499096df1fde5da6ce';
+
+  if ($properties->have_posts()) {
+    while ($properties->have_posts()) {
+      $properties->the_post();
+      $post_id = get_the_ID();
+      $address = get_post_meta($post_id, 'pyre_full_address', true);
+      if (!$address) continue;
+
+      $lat = get_post_meta($post_id, 'cached_lat', true);
+      $lng = get_post_meta($post_id, 'cached_lng', true);
+
+      if (!$lat || !$lng) {
+        $url = "https://us1.locationiq.com/v1/search.php?key={$api_key}&q=" . urlencode($address) . "&format=json&limit=1";
+        $response = wp_remote_get($url);
+        if (!is_wp_error($response)) {
+          $body = wp_remote_retrieve_body($response);
+          $data = json_decode($body, true);
+          if (!empty($data[0])) {
+            $lat = $data[0]['lat'];
+            $lng = $data[0]['lon'];
+            update_post_meta($post_id, 'cached_lat', $lat);
+            update_post_meta($post_id, 'cached_lng', $lng);
+          } else {
+            $lat = $defaultLat;
+            $lng = $defaultLng;
+          }
+        } else {
+          $lat = $defaultLat;
+          $lng = $defaultLng;
+        }
+        sleep(1);
+      }
+
+      $lat += rand(-300, 300) / 1000;
+      $lng += rand(-300, 300) / 1000;
+
+      $locations[] = [
+        'id' => $post_id,
+        'address' => esc_js($address),
+        'lat' => $lat,
+        'lng' => $lng
+      ];
+    }
+    wp_reset_postdata();
+  }
+
+  ob_start();
+  ?>
+  <!-- Lazy load Leaflet CSS -->
+<link rel="preload" as="style" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onload="this.onload=null;this.rel='stylesheet';">
+<noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"></noscript>
+  
+  <div id="map" style="height: 500px;"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const map = L.map('map').setView([<?php echo $defaultLat; ?>, <?php echo $defaultLng; ?>], 8);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const locations = <?php echo json_encode($locations); ?>;
+
+    locations.forEach(function (loc) {
+      const marker = L.marker([loc.lat, loc.lng]).addTo(map);
+
+      const popupId = `popup-${loc.id}`;
+      const popupHtml = `
+        <div id="${popupId}" class="custom-popup">
+          <strong>Address:</strong><br>${loc.address}
+          <br><button onclick="closeCustomPopup('${popupId}')">Close</button>
+        </div>
+      `;
+
+      marker.on('click', function () {
+        const existingPopup = document.querySelector('.custom-popup');
+        if (existingPopup) existingPopup.remove();
+
+        const popup = L.popup()
+          .setLatLng([loc.lat, loc.lng])
+          .setContent(popupHtml)
+          .openOn(map);
+      });
+    });
+
+    window.closeCustomPopup = function(popupId) {
+      const el = document.getElementById(popupId);
+      if (el && el.closest('.leaflet-popup')) {
+        el.closest('.leaflet-popup').remove();
+      }
+    };
+  });
+  </script>
+  <style>
+    .custom-popup {
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .custom-popup button {
+      margin-top: 5px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 4px 8px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .custom-popup button:hover {
+      background: #b52a37;
+    }
+  </style>
+  <?php
+  return ob_get_clean();
+}
+add_shortcode('property_leaflet_map', 'property_locations_leaflet_map');
