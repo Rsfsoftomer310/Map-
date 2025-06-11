@@ -1,0 +1,57 @@
+function dynamic_leaflet_map_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'markers' => '', // "Label|Lat|Lng;Label|Lat|Lng"
+    ), $atts, 'leaflet_map');
+
+    static $map_counter = 0;
+    $map_counter++;
+    $map_id = 'leaflet_map_' . $map_counter;
+
+    ob_start();
+    ?>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #<?php echo esc_attr($map_id); ?> {
+            height: 600px;
+            width: 100%;
+            margin-bottom: 20px;
+            z-index: 1;
+        }
+    </style>
+    <div id="<?php echo esc_attr($map_id); ?>"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        (function(){
+            var map = L.map('<?php echo esc_js($map_id); ?>').setView([44.65, -75.65], 9);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+                maxZoom: 18,
+            }).addTo(map);
+
+            var locations = [];
+            <?php
+            $markerLines = explode(';', $atts['markers']);
+            foreach ($markerLines as $line) {
+                $parts = explode('|', trim($line));
+                if (count($parts) === 3) {
+                    $label = esc_js(trim($parts[0]));
+                    $lat   = floatval($parts[1]);
+                    $lng   = floatval($parts[2]);
+                    echo "locations.push(['{$label}', {$lat}, {$lng}]);\n";
+                }
+            }
+            ?>
+
+            locations.forEach(function(loc) {
+                L.marker([loc[1], loc[2]])
+                    .bindPopup(loc[0])
+                    .addTo(map);
+            });
+        })();
+    </script>
+
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('leaflet_map', 'dynamic_leaflet_map_shortcode');
