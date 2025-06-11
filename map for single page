@@ -1,0 +1,407 @@
+<?php 
+$address = get_post_meta($post->ID, 'pyre_full_address', true);
+$icon = get_post_meta($post->ID, 'pyre_icon_image', true);
+
+if (!$icon) {
+    $icon = get_theme_mod('pyre_property_map_icon', 'https://bambimarshall.ca/wp-content/uploads/2025/06/pin.png');
+}
+
+if (!empty($address)) : ?>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS for modal -->
+    <style>
+        .map-container {
+            position: relative;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        
+        #property-map {
+            height: 300px;
+            width: 100%;
+            z-index: 1;
+            background: #f8f9fa;
+        }
+        
+        .map-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .map-modal-container {
+            width: 95%;
+            height: 95%;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .map-modal-content {
+            width: 100%;
+            height: 100%;
+            background: #fff;
+        }
+        
+        .close-map-modal {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #fff;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10000;
+            font-weight: bold;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .close-map-modal:hover {
+            background: #f0f0f0;
+            transform: scale(1.05);
+        }
+        
+        .map-open-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 500;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+            font-weight: 600;
+            display:none;
+        }
+        
+        .map-open-button:hover {
+            background: #f0f0f0;
+            transform: translateY(-2px);
+        }
+        
+        #map-error {
+            display: none;
+            padding: 20px;
+            background: #f2f2f2;
+            color: #666;
+            text-align: center;
+            border-radius: 0 0 8px 8px;
+            font-style: italic;
+        }
+        
+        .directions-container {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            gap: 10px;
+        }
+        .leaflet-popup.leaflet-zoom-animated {
+    bottom: 30px !important;
+    left: -18px !important;
+}
+        .directions-button {
+            flex: 1;
+            display: block;
+            padding: 12px 15px;
+            background: #3498db;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .directions-button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        .directions-button i {
+            margin-right: 8px;
+        }
+        
+        .fullscreen-button {
+            background: #2ecc71;
+          
+        }
+        
+        .fullscreen-button:hover {
+            background: #27ae60;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+
+    <div class="map-container">
+        <div id="property-map">
+            <div class="loading-overlay">
+                <div class="spinner"></div>
+            </div>
+        </div>
+        <button id="open-map-modal" class="map-open-button">
+            <i class="fas fa-expand"></i> Full Screen
+        </button>
+        <div id="map-error"></div>
+    </div>
+
+    <!-- Full Screen Map Modal -->
+    <div id="map-modal-overlay" class="map-modal-overlay">
+        <div class="map-modal-container">
+            <button id="close-map-modal" class="close-map-modal">
+                <i class="fas fa-times"></i> Close
+            </button>
+            <div id="modal-map" class="map-modal-content">
+                <div class="loading-overlay">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const address = "<?php echo esc_js($address); ?>";
+            const iconUrl = "<?php echo esc_url($icon); ?>";
+            
+            // Default coordinates fallback
+            const defaultLat = 44.59813312191928;
+            const defaultLng = -75.74553358384077;
+
+            // DOM elements
+            const mapContainer = document.getElementById("property-map");
+            const errorDiv = document.getElementById("map-error");
+            const modalOverlay = document.getElementById("map-modal-overlay");
+            const modalMapContainer = document.getElementById("modal-map");
+            const openModalBtn = document.getElementById("open-map-modal");
+            const closeModalBtn = document.getElementById("close-map-modal");
+            const loadingOverlays = document.querySelectorAll('.loading-overlay');
+
+            // Create icon
+            const customIcon = L.icon({
+                iconUrl: iconUrl,
+                iconSize: [32, 45],
+                iconAnchor: [16, 45],
+                popupAnchor: [0, -40]
+            });
+
+            let map, marker;
+            let modalMap, modalMarker;
+            let currentLatLng = { lat: defaultLat, lng: defaultLng };
+            let currentZoom = 13;
+            
+            // Initialize main map
+            function initMap() {
+                // Create the map instance only once
+                if (!map) {
+                    map = L.map(mapContainer, {
+                        zoomControl: true,
+                        scrollWheelZoom: false
+                    });
+                    
+                    // Add tile layer
+                    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                        attribution: '&copy; OpenStreetMap contributors',
+                        maxZoom: 18,
+                        minZoom: 10
+                    }).addTo(map);
+                    
+                    // Add scale control
+                    L.control.scale({position: 'bottomleft'}).addTo(map);
+                }
+                
+                return map;
+            }
+            
+            // Initialize modal map
+            function initModalMap() {
+                if (modalMap) {
+                    modalMap.remove();
+                }
+                
+                modalMap = L.map(modalMapContainer, {
+                    zoomControl: true,
+                    scrollWheelZoom: true
+                });
+                
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: '&copy; OpenStreetMap contributors',
+                    maxZoom: 18,
+                    minZoom: 10
+                }).addTo(modalMap);
+                
+                // Add scale control
+                L.control.scale({position: 'bottomleft'}).addTo(modalMap);
+                
+                return modalMap;
+            }
+
+            function showMap(lat, lng, address, isFallback = false) {
+                // Update current position
+                currentLatLng = { lat: lat, lng: lng };
+                currentZoom = isFallback ? 13 : 15;
+                
+                // Initialize map if not already done
+                const currentMap = initMap();
+                
+                // Remove existing marker if it exists
+                if (marker) {
+                    currentMap.removeLayer(marker);
+                }
+                
+                // Add new marker
+                marker = L.marker([lat, lng], { icon: customIcon })
+                    .addTo(currentMap)
+                    .bindPopup(`<div class="map-popup"><strong>${address}</strong>${isFallback ? '<br><em>Approximate location</em>' : ''}</div>`)
+                    .openPopup();
+                
+                // Set the view
+                currentMap.setView([lat, lng], currentZoom, { animate: true });
+                
+                // Fix map rendering issues
+                setTimeout(() => {
+                    currentMap.invalidateSize();
+                }, 100);
+                
+                // Hide loading overlay
+                loadingOverlays[0].style.display = 'none';
+                
+                errorDiv.style.display = "none";
+                mapContainer.style.display = "block";
+            }
+            
+            function showModalMap() {
+                // Initialize modal map
+                const currentModalMap = initModalMap();
+                
+                // Remove existing modal marker if it exists
+                if (modalMarker) {
+                    currentModalMap.removeLayer(modalMarker);
+                }
+                
+                // Add new marker to modal map
+                modalMarker = L.marker([currentLatLng.lat, currentLatLng.lng], { 
+                    icon: customIcon 
+                }).addTo(currentModalMap)
+                .bindPopup(`<div class="map-popup"><strong>${address}</strong></div>`)
+                .openPopup();
+                
+                // Set the view
+                currentModalMap.setView([currentLatLng.lat, currentLatLng.lng], currentZoom, { animate: true });
+                
+                // Fix map rendering issues
+                setTimeout(() => {
+                    currentModalMap.invalidateSize();
+                    loadingOverlays[1].style.display = 'none';
+                }, 100);
+            }
+
+            function showError(message) {
+                loadingOverlays.forEach(overlay => {
+                    overlay.style.display = 'none';
+                });
+                mapContainer.style.display = "none";
+                errorDiv.textContent = message;
+                errorDiv.style.display = "block";
+            }
+
+            // Modal controls
+            openModalBtn.addEventListener("click", function(e) {
+                e.stopPropagation();
+                modalOverlay.style.display = "flex";
+                showModalMap();
+            });
+
+            closeModalBtn.addEventListener("click", function() {
+                modalOverlay.style.display = "none";
+            });
+
+            modalOverlay.addEventListener("click", function(e) {
+                if (e.target === modalOverlay) {
+                    modalOverlay.style.display = "none";
+                }
+            });
+
+            // Geocode the address
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=ca&q=${encodeURIComponent(address)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        showMap(parseFloat(data[0].lat), parseFloat(data[0].lon), address);
+                    } else {
+                        showMap(defaultLat, defaultLng, address, true);
+                        console.warn("Address not found, using default coordinates");
+                    }
+                })
+                .catch(err => {
+                    showMap(defaultLat, defaultLng, address, true);
+                    showError("Failed to load map data. Please try again later.");
+                    console.error("Geocoding error, using default coordinates:", err);
+                });
+        });
+    </script>
+
+    <div class="directions-container">
+        <a href="https://www.google.com/maps/dir/<?php echo urlencode($address); ?>" target="_blank" rel="noopener noreferrer" >
+            <i class="fas fa-map-marker-alt"></i>
+            <?php echo esc_html__('Get Directions', 'freehold-progression'); ?>
+        </a>
+        
+        
+    </div>
+
+    <script>
+        // Make bottom button also open the modal
+        document.getElementById('open-modal-map-bottom').addEventListener('click', function() {
+            document.getElementById('map-modal-overlay').style.display = 'flex';
+            showModalMap();
+        });
+    </script>
+
+<?php endif; ?>
