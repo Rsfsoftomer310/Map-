@@ -1,0 +1,30 @@
+function property_addresses_shortcode() {
+    $properties = get_posts([
+        'post_type' => 'property',
+        'posts_per_page' => -1,
+        'post_status' => 'publish',
+        'meta_query' => [
+            [
+                'key'     => 'pyre_full_address',
+                'compare' => 'EXISTS',
+            ]
+        ]
+    ]);
+
+    if (empty($properties)) {
+        return '<p>No property addresses found.</p>';
+    }
+
+    $output = '<ul class="property-addresses-list">';
+
+    foreach ($properties as $property) {
+        $address = get_post_meta($property->ID, 'pyre_full_address', true);
+        if (!empty($address)) {
+            $output .= '<li>' . esc_html($address) . '</li>';
+        }
+    }
+
+    $output .= '</ul>';
+    return $output;
+}
+add_shortcode('property_addresses', 'property_addresses_shortcode');
