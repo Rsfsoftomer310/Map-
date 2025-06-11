@@ -1,0 +1,33 @@
+function bambimarshall_check_for_rent_properties_message($content) {
+    if ( is_page() && is_main_query() && !is_admin() ) {
+        // Check if current page is '/for-rent/' by slug or URL
+        global $post;
+        if ( $post && $post->post_name === 'for-rent')  {
+            // Query for 'for-rent' properties
+            $args = array(
+                'post_type' => 'property',  // Your CPT slug
+                'tax_query' => array(
+                    array(
+                        'taxonomy' => 'property_status',
+                        'field'    => 'slug',
+                         
+                    ),
+                ),
+                'posts_per_page' => 1,
+            );
+            $query = new WP_Query($args);
+
+            if ( !$query->have_posts() ) {
+                // No rent properties found — append message to content
+               $content .= '<div style="min-height: 400px; z-index:1; display: flex; align-items: center; justify-content: center;  z-index: 1; "><p style="text-align: center; font-size: 40px;"><strong>No Listings Currently.</strong></p> </div>';
+
+            }
+            wp_reset_postdata();
+        }
+    }
+    return $content;
+}
+add_filter('the_content', 'bambimarshall_check_for_rent_properties_message');
+
+
+ 
